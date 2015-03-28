@@ -54,6 +54,15 @@ extension ViewController : TwitterMediaTimelineDataSource {
 }
 ```
 
+##Install & Try Demo
+
+```shell
+$ git clone git@github.com:lotz84/TwitterMediaTimeline.git
+$ cd TwitterMediaTimeline
+$ pod install
+$ open twitter-media-timeline.xcworkspace
+```
+
 ##Requirement
 Swift 1.2
 
