@@ -12,56 +12,98 @@ import Accounts
 
 class ViewController: UIViewController {
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        let btn0 = UIButton.buttonWithType(.System) as! UIButton
-        btn0.frame = CGRect(x: 0, y: 0, width: self.view.bounds.width, height: self.view.bounds.height/2)
-        btn0.backgroundColor = UIColor.redColor()
-        btn0.addTarget(self, action: "selectTwitterAccount", forControlEvents: .TouchUpInside)
-        
-        self.view.addSubview(btn0)
-    }
+    @IBOutlet weak var queryTextField: UITextField!
     
-    func showCollectionView(account : ACAccount){
+    func showTwitterMediaTimeline(account : ACAccount){
         let vc = TwitterMediaTimeline()
         vc.account = account
+        vc.dataSource = self
         self.presentViewController(vc, animated: true, completion: nil)
     }
 
-    func selectTwitterAccount()
+    @IBAction func selectTwitterAccount()
     {
+        queryTextField.resignFirstResponder()
         if(SLComposeViewController.isAvailableForServiceType(SLServiceTypeTwitter)){
             let accountStore = ACAccountStore()
             let twitterAccountType = accountStore.accountTypeWithAccountTypeIdentifier(ACAccountTypeIdentifierTwitter)
             
             accountStore.requestAccessToAccountsWithType(twitterAccountType, options: nil) {granted, error in
-                if (granted) {
+                if granted {
                     let accounts = accountStore.accountsWithAccountType(twitterAccountType)
-                    if(accounts.count == 1) {
+                    if accounts.count == 1 {
                         dispatch_async(dispatch_get_main_queue()) { [weak self] in
-                            self!.showCollectionView(accounts[0] as! ACAccount)
+                            self!.showTwitterMediaTimeline(accounts[0] as! ACAccount)
                         }
                     } else {
-                        let alert = UIAlertController(title: "アカウントを選択してください", message: nil, preferredStyle: .ActionSheet)
+                        let alert = UIAlertController(title: "Select User", message: nil, preferredStyle: .ActionSheet)
                         for item in accounts {
                             let account = item as! ACAccount
                             alert.addAction(UIAlertAction(title: "@"+account.username, style: .Default) { action in
-                                self.showCollectionView(account)
+                                self.showTwitterMediaTimeline(account)
                             })
                         }
-                        alert.addAction(UIAlertAction(title: "キャンセル", style: .Cancel, handler: nil))
+                        alert.addAction(UIAlertAction(title: "Cancel", style: .Cancel, handler: nil))
                         self.presentViewController(alert, animated: true, completion: nil)
                     }
                 }
             }
         } else {
-            let message = "本体の設定からTwitterアカウントを登録してください"
+            let message = "No User"
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .Alert)
             alert.addAction(UIAlertAction(title: "OK", style: .Default, handler: nil))
             self.presentViewController(alert, animated: true, completion: nil)
         }
     }
     
+    func defaultRequestHandler(handler: JSON -> Void) -> SLRequestHandler {
+        return { body, response, error in
+            if body == nil {
+                println("HTTPRequest Error: \(error.localizedDescription)")
+                return
+            }
+            if response.statusCode < 200 && 300 <= response.statusCode {
+                println("The response status code is \(response.statusCode)")
+                return
+            }
+            handler(JSON(data: body!))
+        }
+    }
+}
+
+extension ViewController : TwitterMediaTimelineDataSource {
+    
+    func getNextStatusIds(request: TMTRequest, callback: TMTResultHandler) -> () {
+        if queryTextField.text.isEmpty {
+            return
+        }
+        
+        let url = "https://api.twitter.com/1.1/search/tweets.json"
+        var param = [
+            "q": queryTextField.text,
+            "result_type": "recent",
+            "count": "100"
+        ]
+        if let maxId = request.maxId {
+            param.updateValue(maxId, forKey: "max_id")
+        }
+        
+        let slRequest = SLRequest(forServiceType: SLServiceTypeTwitter, requestMethod: .GET, URL: NSURL(string: url), parameters: param)
+        slRequest.account = request.account
+        slRequest.performRequestWithHandler(defaultRequestHandler { json in
+            
+            var idArray : [String] = []
+            for status in json["statuses"].arrayValue {
+                if status["retweeted_status"] != nil {
+                    continue
+                }
+                if let id = status["id_str"].string {
+                    idArray.append(id)
+                }
+            }
+            
+            callback(idArray: idArray)
+        })
+    }
 }
 

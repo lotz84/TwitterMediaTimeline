@@ -1,25 +1,19 @@
-//
-//  TweetStatus.swift
-//  twitter-media-timeline
-//
-//  Created by Hirose Tatsuya on 2015/03/26.
-//  Copyright (c) 2015年 lotz84. All rights reserved.
-//
 
 import Foundation
 
 struct TweetStatus {
-    var id : String
-    var text : String
-    var createdAt : String
-    var favorited : Bool
-    var retweeted : Bool
-    var favoriteCount : Int
-    var retweetCount : Int
-    var name : String
-    var screenName : String
-    var profileImageURL : String
-    var medias: [TweetMedia]
+    let id : String
+    let text : String
+    let createdAt : String
+    let favorited : Bool
+    let retweeted : Bool
+    let favoriteCount : Int
+    let retweetCount : Int
+    let name : String
+    let screenName : String
+    let profileImageURL : String
+    let urlMap : [String:String]
+    let medias: [TweetMedia]
     
     static func fromJSON(json: JSON) -> TweetStatus? {
         if  let id = json["user"]["id_str"].string,
@@ -34,19 +28,30 @@ struct TweetStatus {
             let screenName = json["user"]["screen_name"].string
         {
             var medias : [TweetMedia] = []
+            var urlMap : [String:String] = [:]
+            if let urls = json["entities"]["urls"].array {
+                for urlJson in urls {
+                    if  let url = urlJson["url"].string,
+                        let expanded = urlJson["expanded_url"].string
+                    {
+                        urlMap.updateValue(expanded, forKey: url)
+                        
+                        if let media = TweetMedia.fromURL(url) {
+                            medias.append(media)
+                        }
+                    }
+                }
+            }
             if let mediaJsonArray = json["extended_entities"]["media"].array {
                 for mediaJson in mediaJsonArray {
                     if let media = TweetMedia.fromJSON(mediaJson) {
                         medias.append(media)
                     }
-                }
-            }
-            if let urls = json["entities"]["urls"].array {
-                for urlJson in urls {
-                    if let url = urlJson["expanded_url"].string {
-                        if let media = TweetMedia.fromURL(url) {
-                            medias.append(media)
-                        }
+                    
+                    if  let url = mediaJson["url"].string,
+                        let expanded = mediaJson["expanded_url"].string
+                    {
+                        urlMap.updateValue(expanded, forKey: url)
                     }
                 }
             }
@@ -62,6 +67,7 @@ struct TweetStatus {
                 name: name,
                 screenName: screenName,
                 profileImageURL: profileImageURL,
+                urlMap: urlMap,
                 medias: medias
             )
         }
@@ -87,9 +93,7 @@ struct TweetMedia {
                         }
                     }
                 }
-            case "photo":
-                return TweetMedia(type: .Photo, url: url)
-            default:
+            default: // also case "photo"
                 return TweetMedia(type: .Photo, url: url)
             }
         }
@@ -97,6 +101,16 @@ struct TweetMedia {
     }
     
     static func fromURL(url: String) -> TweetMedia? {
+        
+        if url.hasPrefix("https://instagram.com/p/") {
+            let requestURL = NSURL(string: "http://api.instagram.com/oembed?url=" + url)!
+            let request = NSURLRequest(URL: requestURL, cachePolicy: .ReloadIgnoringLocalCacheData, timeoutInterval: 10)
+            let data = NSURLConnection.sendSynchronousRequest(request, returningResponse: nil, error: nil)
+            let json : AnyObject? = NSJSONSerialization.JSONObjectWithData(data!, options: .AllowFragments, error: nil)
+            if let thumbnailUrl =  json?["thumbnail_url"] as? String {
+                return TweetMedia(type: .Photo, url: thumbnailUrl)
+            }
+        }
         
         if url.hasPrefix("http://gyazo.com/") {
             return TweetMedia(type: .Photo, url: url + ".png")

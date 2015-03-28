@@ -1,10 +1,3 @@
-//
-//  TweetStatusView.swift
-//  twitter-media-timeline
-//
-//  Created by Hirose Tatsuya on 2015/03/26.
-//  Copyright (c) 2015年 lotz84. All rights reserved.
-//
 
 import UIKit
 import Social
@@ -194,6 +187,9 @@ class TweetStatusView : UIView {
     var socialCountLabel : UILabel
     var createdAtLabel : UILabel
     
+    var favCallback : (() -> ())?
+    var rtCallback : (() -> ())?
+    
     required init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -313,7 +309,7 @@ class TweetStatusView : UIView {
     func updateCreatedAtLabelFrame() {
         let width = oneLineStringWidth(createdAtLabel.text!, font: createdAtLabel.font)
         let x = rightOrigin(tweetTextLabel) - width
-        let y = bottomOrigin(tweetTextLabel)
+        let y = bottomOrigin(tweetTextLabel) + 5
         let height : CGFloat = 12
         createdAtLabel.frame = CGRect(x: x, y: y, width: width, height: height)
     }
@@ -338,11 +334,18 @@ class TweetStatusView : UIView {
         screenNameLabel.text = "@" + status.screenName
         self.updateScreenNameLabelFrame()
         
-        tweetTextLabel.text = status.text
+        var text = status.text
+        for (url, _expanded) in status.urlMap {
+            var expanded = _expanded
+            if count(expanded) > 40 {
+                expanded = ((expanded as NSString).substringWithRange(NSRange(location: 0, length: 40)) as String) + "..."
+            }
+            text = text.stringByReplacingOccurrencesOfString(url, withString: expanded, options: nil, range: nil)
+        }
+        tweetTextLabel.text = text
         self.updateTweetTextLabelFrame()
         
         socialCountLabel.text = "\(status.favoriteCount)\n\(status.retweetCount)"
-        
         
         let formatter = NSDateFormatter()
         formatter.dateFormat = "EEE MMM d HH:mm:ss Z y"
@@ -359,8 +362,5 @@ class TweetStatusView : UIView {
             width: self.frame.size.width,
             height:max(self.bottomOrigin(createdAtLabel), self.bottomOrigin(socialCountLabel)) + margin.bottom
         )
-        
-        // fav
-        // rt
     }
 }

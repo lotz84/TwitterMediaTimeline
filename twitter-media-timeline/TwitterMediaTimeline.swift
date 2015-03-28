@@ -1,21 +1,23 @@
-//
-//  TwitterMediaTimelineViewController.swift
-//  twitter-media-timeline
-//
-//  Created by Hirose Tatsuya on 2015/03/26.
-//  Copyright (c) 2015年 lotz84. All rights reserved.
-//
 
 import UIKit
 import Social
 import Accounts
 
+typealias TMTRequest = (maxId: String?, account: ACAccount)
+typealias TMTResultHandler = (idArray: [String]) -> ()
+
+protocol TwitterMediaTimelineDataSource : class {
+    func getNextStatusIds(request: TMTRequest, callback: TMTResultHandler) -> ()
+}
+
 class TwitterMediaTimeline : UIViewController {
     
+    weak var dataSource: TwitterMediaTimelineDataSource?
+    
     var account : ACAccount?
-    var statusIds : [String] = []
-    var nextSinceId = "0"
-    var statusJSON : [String:TweetStatus] = [:]
+    var nextMaxId : String?
+    var statusIdArray : [String] = []
+    var statusMap : [String:TweetStatus] = [:]
     var collectionView : UICollectionView?
     let ReuseIdentifier = "cell"
     
@@ -24,26 +26,60 @@ class TwitterMediaTimeline : UIViewController {
         
         let layout = UICollectionViewFlowLayout()
         layout.itemSize = self.view.bounds.size
-        //layout.headerReferenceSize = CGSizeMake(0, 0);
-        //layout.footerReferenceSize = CGSizeMake(0, 0);
         layout.minimumLineSpacing = 0.0;
         layout.minimumInteritemSpacing = 0.0;
         layout.sectionInset = UIEdgeInsetsZero;
         layout.scrollDirection = .Horizontal
         
-        self.collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: layout)
-        self.view.addSubview(collectionView!)
-        
-        collectionView!.pagingEnabled = true
-        
-        collectionView!.delegate = self
+        collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: layout)
         collectionView!.dataSource = self
-        
+        collectionView!.pagingEnabled = true
         collectionView!.registerClass(TweetStatusCell.classForCoder(), forCellWithReuseIdentifier:ReuseIdentifier)
         
-        self.loadNextTweets()
+        view.addSubview(collectionView!)
+        
+        self.dataSource?.getNextStatusIds((maxId: nextMaxId, account: account!), callback: self.resultHandler)
     }
     
+    func resultHandler(idList: [String]) {
+        
+        if idList.isEmpty {
+            nextMaxId = nil
+        } else {
+            nextMaxId = String(minElement(idList.map({(x:String) in x.toInt()!})) - 1)
+        }
+        
+        statusIdArray += idList
+        
+        dispatch_async(dispatch_get_main_queue()) {
+            self.collectionView?.reloadData()
+        }
+    }
+}
+
+extension TwitterMediaTimeline : UICollectionViewDataSource {
+    
+    func collectionView(collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return statusIdArray.count
+    }
+    
+    func collectionView(collectionView: UICollectionView, cellForItemAtIndexPath indexPath: NSIndexPath) -> UICollectionViewCell {
+        if indexPath.row + 1 == statusIdArray.count {
+            if let maxId = nextMaxId {
+                self.dataSource?.getNextStatusIds((maxId: maxId, account: account!), callback: self.resultHandler)
+            }
+        }
+        
+        let cell = collectionView.dequeueReusableCellWithReuseIdentifier(ReuseIdentifier, forIndexPath: indexPath) as! TweetStatusCell
+        self.loadStatus(statusIdArray[indexPath.row]) { status in
+            cell.setStatus(status)
+        }
+        return cell;
+    }
+}
+
+//MARK: Network
+extension TwitterMediaTimeline {
     func defaultRequestHandler(handler: JSON -> Void) -> SLRequestHandler {
         return { body, response, error in
             if (body == nil) {
@@ -54,46 +90,12 @@ class TwitterMediaTimeline : UIViewController {
                 println("The response status code is \(response.statusCode)")
                 return
             }
-            
-            let json = JSON(data: body!)
-            
-            handler(json)
+            handler(JSON(data: body!))
         }
     }
     
-    func loadNextTweets()
-    {
-        let url = "https://api.twitter.com/1.1/search/tweets.json"
-        let param = [
-            "q":"#adfjls",
-            "since_id":self.nextSinceId,
-            "result_type": "recent",
-            "count": "100"
-        ]
-        
-        let request = SLRequest(forServiceType: SLServiceTypeTwitter, requestMethod: .GET, URL: NSURL(string: url), parameters: param)
-        request.account = self.account
-        request.performRequestWithHandler(defaultRequestHandler { json in
-            
-            self.nextSinceId = json["search_metadata"]["max_id"].stringValue
-            
-            for status in json["statuses"].arrayValue {
-                if status["retweeted_status"] != nil {
-                    continue
-                }
-                if let id = status["id_str"].string {
-                    self.statusIds.append(id)
-                }
-            }
-            
-            dispatch_async(dispatch_get_main_queue()) {
-                self.collectionView?.reloadData()
-            }
-        })
-    }
-    
     func loadStatus(statusId : String, completion : TweetStatus -> Void) {
-        if let json = self.statusJSON[statusId] {
+        if let json = statusMap[statusId] {
             completion(json)
         } else {
             let url = "https://api.twitter.com/1.1/statuses/show/\(statusId).json"
@@ -103,9 +105,7 @@ class TwitterMediaTimeline : UIViewController {
             request.performRequestWithHandler { body, response, error in
                 let json = JSON(data: body!)
                 if let status = TweetStatus.fromJSON(json) {
-                    println("===================================")
-                    println(json)
-                    self.statusJSON[statusId] = status
+                    self.statusMap[statusId] = status
                     dispatch_async(dispatch_get_main_queue()) {
                         completion(status)
                     }
@@ -114,24 +114,5 @@ class TwitterMediaTimeline : UIViewController {
                 }
             }
         }
-    }
-}
-
-extension TwitterMediaTimeline : UICollectionViewDelegate {
-
-}
-
-extension TwitterMediaTimeline : UICollectionViewDataSource {
-    
-    func collectionView(collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return self.statusIds.count
-    }
-    
-    func collectionView(collectionView: UICollectionView, cellForItemAtIndexPath indexPath: NSIndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCellWithReuseIdentifier(ReuseIdentifier, forIndexPath: indexPath) as! TweetStatusCell
-        self.loadStatus(self.statusIds[indexPath.row]) { status in
-            cell.setStatus(status)
-        }
-        return cell;
     }
 }
