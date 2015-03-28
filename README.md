@@ -14,7 +14,7 @@
 
 ##Example
 
-```
+```swift
 func showTwitterMediaTimeline(account : ACAccount){
     let vc = TwitterMediaTimeline()
     vc.account = account
@@ -25,7 +25,7 @@ func showTwitterMediaTimeline(account : ACAccount){
 
 ###DataSource Delegate (Search Tweet)
 
-```
+```swift
 extension ViewController : TwitterMediaTimelineDataSource {
     func getNextStatusIds(request: TMTRequest, callback: TMTResultHandler) -> () {
         let url = "https://api.twitter.com/1.1/search/tweets.json"
